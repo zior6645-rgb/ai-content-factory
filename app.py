@@ -3,118 +3,58 @@ from groq import Groq
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
-# 1. Global Page Configuration
-st.set_page_config(
-    page_title="AI Global Content Factory",
-    page_icon="⚡",
-    layout="wide"
-)
+# Page Config
+st.set_page_config(page_title="AI Global Factory", page_icon="⚡", layout="wide")
 
-# 2. Sidebar - Monetization & Configuration
+# Sidebar for Settings
 with st.sidebar:
-    st.title("💰 Premium Access")
-    st.success("### High-Speed AI Active")
-    st.write("For unlimited processing power, send **20 USDT (TRC20)** to:")
-    st.code("YOUR_USDT_WALLET_ADDRESS_HERE", language="text") # آدرس تترت را اینجا بگذار
-    
-    st.divider()
-    st.header("⚙️ Configuration")
-    # API Key Input for Groq
+    st.title("⚙️ Configuration")
+    # دریافت کلید مستقیماً از ویجت (بدون نیاز به Secrets برای سادگی فعلی)
     raw_key = st.text_input("Enter Groq API Key:", type="password")
     api_key = raw_key.strip() if raw_key else None
-    st.info("🔗 [Get Groq API Key Here](https://console.groq.com/keys)")
-    
+    st.info("🔗 [Get Groq Key](https://console.groq.com/keys)")
     st.divider()
-    st.caption("Powered by Groq & Llama 3.3 | v3.0 Global")
+    st.write("💰 **Premium Wallet:**")
+    st.code("YOUR_USDT_ADDRESS") 
 
-# 3. Main Interface Header
 st.title("🎬 AI Global Content Factory")
-st.markdown("#### Fastest Way to Repurpose YouTube Videos into Professional Content")
-st.divider()
 
-# 4. Input Section
-col1, col2 = st.columns(2)
+if api_key:
+    try:
+        # تست کلید
+        client = Groq(api_key=api_key)
+        # یک پیام تست کوچک به گروک می‌فرستیم تا مطمئن شویم وصل شده
+        st.success("✅ Groq AI is Connected!")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            url = st.text_input("YouTube URL:")
+        with col2:
+            manual = st.text_area("OR Paste Transcript manually:")
 
-with col1:
-    st.markdown("### 🌐 Option A: YouTube Link")
-    url = st.text_input("YouTube URL:", placeholder="https://www.youtube.com/watch?v=...")
-
-with col2:
-    st.markdown("### ⌨️ Option B: Manual Transcript")
-    manual_text = st.text_area("Paste Transcript (Failsafe):", placeholder="Copy from YouTube 'Show Transcript' and paste here...", height=100)
-
-# 5. Core Execution Logic
-if st.button("🚀 Generate Professional Content Bundle"):
-    if not api_key:
-        st.error("❌ API Key is missing! Please enter your Groq API Key in the sidebar.")
-    else:
-        try:
-            # Initialize Groq Client
-            client = Groq(api_key=api_key)
-            
-            final_transcript = ""
-            
-            # Step 1: Content Acquisition
-            if manual_text:
-                final_transcript = manual_text
+        if st.button("🚀 Generate Content"):
+            final_text = ""
+            if manual:
+                final_text = manual
             elif url:
-                with st.spinner("⏳ Extracting video script..."):
-                    try:
-                        # Extract Video ID using Regex
-                        video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url).group(1)
-                        srt = YouTubeTranscriptApi.get_transcript(video_id)
-                        final_transcript = " ".join([t['text'] for t in srt])
-                    except:
-                        st.error("⚠️ YouTube auto-fetch blocked. Please use **Option B (Manual Paste)**.")
+                with st.spinner("Extracting..."):
+                    video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url).group(1)
+                    srt = YouTubeTranscriptApi.get_transcript(video_id)
+                    final_text = " ".join([t['text'] for t in srt])
             
-            # Step 2: AI Generation with Groq (Llama 3.3)
-            if final_transcript:
-                with st.spinner("🤖 Groq AI is architecting your content..."):
-                    completion = client.chat.completions.create(
+            if final_text:
+                with st.spinner("Llama 3 is writing..."):
+                    chat_completion = client.chat.completions.create(
+                        messages=[{"role": "user", "content": f"Create a professional Blog Post and 5 Tweets from this: {final_text}"}],
                         model="llama-3.3-70b-versatile",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You are a professional content strategist. Output everything in Professional English using clean Markdown."
-                            },
-                            {
-                                "role": "user",
-                                "content": f"Analyze this transcript: {final_transcript}\n\nCreate three sections:\n1. A Detailed SEO Blog Post.\n2. 5 Viral Twitter Posts with emojis.\n3. A professional LinkedIn summary."
-                            }
-                        ],
-                        temperature=0.7,
-                        max_tokens=4096
                     )
-                    
-                    result = completion.choices[0].message.content
                     st.balloons()
-                    st.divider()
-                    
-                    # Step 3: Organized Display in Tabs
-                    tab1, tab2, tab3 = st.tabs(["📝 SEO Blog Post", "🐦 Twitter Bundle", "💼 LinkedIn"])
-                    
-                    # Split or display result (Llama usually provides clear headers)
-                    with tab1:
-                        st.markdown(result)
-                    with tab2:
-                        st.info("Viral threads generated by Groq")
-                        st.write(result)
-                    with tab3:
-                        st.write(result)
-                    
-                    # Step 4: Download Feature
-                    st.download_button(
-                        label="📥 Download All Content",
-                        data=result,
-                        file_name="ai_global_content.txt",
-                        mime="text/plain"
-                    )
+                    st.markdown(chat_completion.choices[0].message.content)
             else:
-                st.warning("⚠️ No content found. Please provide a link or transcript.")
-                
-        except Exception as e:
-            st.error(f"Groq System Error: {str(e)}")
+                st.warning("Please provide a link or text.")
 
-# 6. Global Footer
-st.divider()
-st.markdown("<p style='text-align: center;'>© 2024 AI Global Content Factory | Built for Success</p>", unsafe_allow_html=True)
+    except Exception as e:
+        # اگر خطایی داد، اینجا به ما می‌گوید
+        st.error(f"Groq Error: {str(e)}")
+else:
+    st.info("👈 Please enter your Groq API Key in the sidebar and press ENTER.")
