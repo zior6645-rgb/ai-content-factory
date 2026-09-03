@@ -1,5 +1,4 @@
-```text
 streamlit
 google-genai
 youtube-transcript-api==1.2.4
-```
+
