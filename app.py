@@ -1,4 +1,3 @@
-```python
 import re
 import streamlit as st
 from google import genai
