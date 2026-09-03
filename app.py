@@ -13,11 +13,31 @@ api_key = st.text_input(
 type="password"
 )
 
-st.write("Enter your Gemini API key and press the button.")
-
 button = st.button(
 "Test Gemini",
 type="primary"
 )
 
-st.write("Button ready.")
+if button:
+key = api_key.strip()
+
+```
+if key:
+    try:
+        client = genai.Client(api_key=key)
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Say hello in one short sentence."
+        )
+
+        st.success("Gemini is connected successfully.")
+        st.write(response.text)
+
+    except Exception as error:
+        st.error("Gemini connection failed.")
+        st.code(str(error))
+
+else:
+    st.warning("Please enter your Gemini API key.")
+```
