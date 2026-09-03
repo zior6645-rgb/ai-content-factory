@@ -1,3 +1,4 @@
+import os
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -12,14 +13,28 @@ st.set_page_config(
 )
 
 
+def get_setting(name: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(name, os.getenv(name, default))
+    except Exception:
+        return os.getenv(name, default)
+
+
+USDT_NETWORK = get_setting("USDT_NETWORK", "TRC20")
+USDT_ADDRESS = get_setting("USDT_RECEIVE_ADDRESS")
+USDT_AMOUNT = get_setting("USDT_AMOUNT", "0")
+PAYMENT_NOTE = get_setting(
+    "PAYMENT_NOTE",
+    "Send only USDT on the selected network.",
+)
+
+
 def extract_video_id(url: str) -> str:
     if not url:
         return ""
 
-    url = url.strip()
-
     try:
-        parsed = urlparse(url)
+        parsed = urlparse(url.strip())
         host = parsed.netloc.lower().replace("www.", "")
 
         if host == "youtu.be":
@@ -28,8 +43,8 @@ def extract_video_id(url: str) -> str:
             if parsed.path == "/watch":
                 video_id = parse_qs(parsed.query).get("v", [""])[0]
             else:
-                parts = parsed.path.strip("/").split("/")
-                video_id = parts[1] if len(parts) >= 2 else ""
+                path_parts = parsed.path.strip("/").split("/")
+                video_id = path_parts[1] if len(path_parts) > 1 else ""
         else:
             return ""
 
@@ -37,7 +52,7 @@ def extract_video_id(url: str) -> str:
             return video_id
 
     except ValueError:
-        return ""
+        pass
 
     return ""
 
@@ -64,8 +79,10 @@ def fetch_youtube_transcript(video_id: str) -> str:
     for item in transcript:
         if hasattr(item, "text"):
             parts.append(item.text)
-        elif isinstance(item, dict) and item.get("text"):
-            parts.append(item["text"])
+        elif isinstance(item, dict):
+            text = item.get("text", "")
+            if text:
+                parts.append(text)
 
     result = clean_text(" ".join(parts))
 
@@ -78,13 +95,11 @@ def fetch_youtube_transcript(video_id: str) -> str:
 def generate_ai_content(api_key: str, transcript: str) -> str:
     client = genai.Client(api_key=api_key)
 
-    transcript = transcript[:100000]
-
     prompt = f"""
 You are a professional international content strategist, SEO writer,
 editorial writer and social media content creator.
 
-Transform the supplied YouTube transcript into high-quality original content.
+Transform the supplied YouTube transcript into original, useful content.
 
 Rules:
 1. Do not invent facts, statistics or quotations.
@@ -92,33 +107,33 @@ Rules:
 3. Preserve the meaning of the source.
 4. Do not misrepresent the speaker.
 5. Avoid misleading clickbait.
-6. Write professional international English.
+6. Use professional international English.
 7. Do not mention that you are an AI.
 8. Use only information supported by the transcript.
 9. Create exactly three assets.
 
 [BLOG]
-Create a detailed SEO-friendly article with:
+Create one detailed SEO-friendly article with:
 - SEO title
 - Introduction
 - Logical H2 and H3 headings
 - Detailed explanation
 - Important insights
-- Practical examples only when supported
+- Supported practical examples
 - Practical takeaways
 - Conclusion
 - SEO keywords
 
 [X]
-Create exactly five separate X/Twitter posts.
+Create exactly five separate X posts.
 Number them from 1 to 5.
-Each post must:
-- Have a strong hook
-- Communicate one useful idea
-- Be concise and easy to read
-- Use emojis naturally
-- Avoid misleading claims
-- Avoid excessive hashtags
+Each post must have:
+- A strong hook
+- One useful idea
+- Concise wording
+- Natural emoji usage
+- No misleading claims
+- No excessive hashtags
 
 [LINKEDIN]
 Create exactly one professional LinkedIn post with:
@@ -129,13 +144,13 @@ Create exactly one professional LinkedIn post with:
 - Professional conclusion
 - Three to five relevant hashtags
 
-Use exactly these three labels and do not create additional top-level labels:
+Use only these top-level labels:
 [BLOG]
 [X]
 [LINKEDIN]
 
 SOURCE TRANSCRIPT:
-{transcript}
+{transcript[:100000]}
 """
 
     response = client.models.generate_content(
@@ -153,19 +168,17 @@ def split_content(result: str) -> tuple[str, str, str]:
     blog_match = re.search(
         r"\[BLOG\](.*?)(?=\[X\]|\Z)",
         result,
-        flags=re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE | re.DOTALL,
     )
-
     x_match = re.search(
         r"\[X\](.*?)(?=\[LINKEDIN\]|\Z)",
         result,
-        flags=re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE | re.DOTALL,
     )
-
     linkedin_match = re.search(
         r"\[LINKEDIN\](.*)",
         result,
-        flags=re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE | re.DOTALL,
     )
 
     blog = blog_match.group(1).strip() if blog_match else ""
@@ -179,59 +192,102 @@ def split_content(result: str) -> tuple[str, str, str]:
 
 
 def show_api_error(error: Exception) -> None:
-    error_message = str(error)
-    lower_error = error_message.lower()
+    message = str(error)
+    lowered = message.lower()
 
     st.error("Gemini could not generate the content.")
 
-    if "401" in error_message:
+    if "401" in message:
         st.warning("The Gemini API key may be invalid.")
-    elif "403" in error_message:
-        st.warning("Google rejected the request. Check API access.")
-    elif "429" in error_message or "quota" in lower_error:
+    elif "403" in message:
+        st.warning("Google rejected the request.")
+    elif "429" in message or "quota" in lowered:
         st.warning("The API rate limit or quota may have been reached.")
     else:
-        st.warning("An unexpected error occurred.")
+        st.warning("An unexpected API error occurred.")
 
     with st.expander("Technical details"):
-        st.code(error_message)
+        st.code(message)
+
+
+def render_payment_panel() -> None:
+    st.subheader("💳 USDT Payment")
+
+    if not USDT_ADDRESS:
+        st.warning(
+            "USDT payments are not configured. "
+            "Set USDT_RECEIVE_ADDRESS in Streamlit secrets."
+        )
+        return
+
+    st.info(
+        f"Network: {USDT_NETWORK}\n\n"
+        f"Amount: {USDT_AMOUNT} USDT\n\n"
+        f"{PAYMENT_NOTE}"
+    )
+
+    st.code(USDT_ADDRESS, language="text")
+
+    try:
+        import qrcode
+        from io import BytesIO
+
+        qr = qrcode.make(USDT_ADDRESS)
+        buffer = BytesIO()
+        qr.save(buffer, format="PNG")
+
+        st.image(
+            buffer.getvalue(),
+            width=180,
+            caption="USDT receiving address",
+        )
+    except ImportError:
+        st.caption("Install qrcode[pil] to display a payment QR code.")
+
+    transaction_hash = st.text_input(
+        "Transaction hash",
+        placeholder="Paste your transaction hash after payment",
+    )
+
+    if st.button("Submit Payment Reference"):
+        if not transaction_hash.strip():
+            st.error("Please enter a transaction hash.")
+        else:
+            st.success(
+                "Payment reference received. "
+                "Manual blockchain verification is required."
+            )
+
+    st.warning(
+        "Send USDT only on the displayed network. "
+        "Sending assets on another network may cause permanent loss."
+    )
 
 
 st.title("🎬 AI Global Content Factory")
 st.subheader("Transform YouTube knowledge into professional content")
-
 st.write(
-    "Create SEO articles, X/Twitter posts and LinkedIn content "
+    "Create SEO articles, X posts and LinkedIn content "
     "from a YouTube transcript."
 )
 
 with st.sidebar:
     st.header("⚙️ Settings")
-    st.subheader("🔑 Gemini API")
 
     api_key = st.text_input(
         "Gemini API Key",
         type="password",
-        placeholder="Paste your API key",
+        placeholder="Paste your Gemini API key",
     )
 
-    st.caption("Your API key is used only for the current session.")
+    st.caption("Your API key is used only during the current session.")
     st.markdown(
         "[Get a Gemini API key from Google AI Studio]"
         "(https://aistudio.google.com/apikey)"
     )
 
     st.divider()
-    st.subheader("💎 Premium")
-    st.info(
-        "Premium features can be added later, including advanced "
-        "content formats, higher limits and additional tools."
-    )
-
-    st.divider()
-    st.caption("AI Global Content Factory")
-    st.caption("Powered by Streamlit + Gemini")
-
+    render_payment_panel()
 
 col1, col2 = st.columns(2)
 
@@ -244,7 +300,7 @@ with col1:
     )
 
     st.caption(
-        "Supports videos, Shorts, Live and youtu.be links."
+        "Supports standard videos, Shorts, Live and youtu.be links."
     )
 
 with col2:
@@ -252,9 +308,7 @@ with col2:
 
     manual_transcript = st.text_area(
         "Paste transcript",
-        placeholder=(
-            "If automatic retrieval fails, paste the transcript here."
-        ),
+        placeholder="Paste a transcript here if automatic retrieval fails.",
         height=220,
     )
 
@@ -270,7 +324,7 @@ if generate_button:
     key = api_key.strip()
 
     if not key:
-        st.error("Please enter your Gemini API key in the sidebar.")
+        st.error("Please enter your Gemini API key.")
         st.stop()
 
     transcript = clean_text(manual_transcript)
@@ -282,7 +336,7 @@ if generate_button:
             st.error("The YouTube URL is not valid.")
             st.stop()
 
-        with st.spinner("🔎 Fetching YouTube transcript..."):
+        with st.spinner("Fetching YouTube transcript..."):
             try:
                 transcript = fetch_youtube_transcript(video_id)
                 st.success("YouTube transcript retrieved successfully.")
@@ -290,7 +344,7 @@ if generate_button:
                 st.error("Automatic transcript retrieval failed.")
                 st.info(
                     "Copy the transcript from YouTube and paste it "
-                    "into the Manual Transcript box."
+                    "into the manual transcript field."
                 )
 
                 with st.expander("Technical details"):
@@ -299,32 +353,28 @@ if generate_button:
                 st.stop()
 
     if not transcript:
-        st.warning("Please provide a YouTube URL or paste a transcript.")
+        st.warning("Provide a YouTube URL or paste a transcript.")
         st.stop()
 
     if len(transcript) < 50:
-        st.warning(
-            "The transcript is too short. Please provide more content."
-        )
+        st.warning("The transcript is too short.")
         st.stop()
 
-    st.info(
-        f"Transcript length: {len(transcript):,} characters"
-    )
+    st.info(f"Transcript length: {len(transcript):,} characters")
 
-    with st.spinner("🤖 Gemini is creating your content..."):
+    with st.spinner("Gemini is creating your content..."):
         try:
-            result = generate_ai_content(key, transcript)
+            generated_content = generate_ai_content(key, transcript)
         except Exception as error:
             show_api_error(error)
             st.stop()
 
-    blog, x_posts, linkedin = split_content(result)
+    blog, x_posts, linkedin = split_content(generated_content)
 
-    st.success("🎉 Content generated successfully!")
+    st.success("Content generated successfully!")
 
     tab_blog, tab_x, tab_linkedin = st.tabs(
-        ["📝 Blog", "𝕏 X / Twitter", "💼 LinkedIn"]
+        ["📝 Blog", "𝕏 X", "💼 LinkedIn"]
     )
 
     with tab_blog:
@@ -351,7 +401,7 @@ if generate_button:
                 use_container_width=True,
             )
         else:
-            st.warning("No X/Twitter section was detected.")
+            st.warning("No X section was detected.")
 
     with tab_linkedin:
         if linkedin:
@@ -366,31 +416,23 @@ if generate_button:
         else:
             st.warning("No LinkedIn section was detected.")
 
-    complete_bundle = (
+    bundle = (
         "AI GLOBAL CONTENT FACTORY\n\n"
-        "========================================\n"
-        "BLOG\n"
-        "========================================\n\n"
+        "BLOG\n\n"
         f"{blog}\n\n"
-        "========================================\n"
-        "X / TWITTER\n"
-        "========================================\n\n"
+        "X POSTS\n\n"
         f"{x_posts}\n\n"
-        "========================================\n"
-        "LINKEDIN\n"
-        "========================================\n\n"
+        "LINKEDIN\n\n"
         f"{linkedin}"
     )
 
-    st.divider()
-
     st.download_button(
-        "📦 Download Complete Content Bundle",
-        data=complete_bundle,
-        file_name="ai_global_content_factory_bundle.txt",
+        "📦 Download Complete Bundle",
+        data=bundle,
+        file_name="content_bundle.txt",
         mime="text/plain",
         use_container_width=True,
     )
 
 st.divider()
-st.caption("AI Global Content Factory • Streamlit + Gemini")
+st.caption("AI Global Content Factory | Streamlit + Gemini")
