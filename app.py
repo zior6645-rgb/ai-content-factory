@@ -3,157 +3,114 @@ import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
-# 1. Global Page Configuration
+# 1. Professional Page Configuration
 st.set_page_config(
-    page_title="AI Content Factory | Global Edition",
+    page_title="AI Global Content Factory",
     page_icon="🚀",
     layout="wide"
 )
 
-# 2. Advanced Professional Styling
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stTabs [data-baseweb="tab-list"] { gap: 20px; }
-    .stTabs [data-baseweb="tab"] { 
-        height: 60px; 
-        background-color: #ffffff; 
-        border: 1px solid #e0e0e0;
-        border-radius: 10px; 
-        font-weight: bold;
-        padding: 0 20px;
-    }
-    .stTabs [aria-selected="true"] { 
-        background-color: #FF4B4B !important; 
-        color: white !important; 
-        border: none;
-    }
-    div.stButton > button:first-child {
-        background-color: #FF4B4B;
-        color: white;
-        border-radius: 10px;
-        height: 3.5rem;
-        font-weight: bold;
-        font-size: 1.2rem;
-        border: none;
-        transition: 0.3s;
-    }
-    div.stButton > button:hover {
-        background-color: #D43F3F;
-        color: white;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 3. Sidebar - Monetization & Settings
+# 2. Sidebar - Settings & Monetization
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2091/2091665.png", width=80)
-    st.title("💰 Monetization")
-    st.success("### Premium Membership")
-    st.write("For unlimited AI processing and early access to new features, send **20 USDT (TRC20)** to:")
-    st.code("ENTER_YOUR_WALLET_ADDRESS_HERE", language="text") # آدرس تترت رو اینجا بذار
-    st.caption("Verification usually takes 1-2 hours. Contact support for help.")
+    st.title("💰 Premium Access")
+    st.success("### Lifetime License")
+    st.write("For unlimited AI power, send **20 USDT (TRC20)** to:")
+    st.code("ENTER_YOUR_WALLET_ADDRESS_HERE", language="text")
+    st.caption("Contact support for manual verification.")
     
     st.divider()
-    st.header("⚙️ API Configuration")
-    api_key = st.text_input("Enter Gemini API Key:", type="password", help="Get a free key from Google AI Studio")
-    st.info("🔗 [Get Your API Key Here](https://aistudio.google.com/)")
+    st.header("⚙️ Configuration")
+    # Using strip() to remove accidental spaces
+    raw_key = st.text_input("Enter Gemini API Key:", type="password")
+    api_key = raw_key.strip() if raw_key else None
+    st.info("🔗 [Get Free API Key](https://aistudio.google.com/)")
     
     st.divider()
-    st.markdown("Developed by **zior6645-rgb**")
-    st.caption("Version 2.0 | Stable Release")
+    st.caption("Version 1.1 | Developed by zior6645-rgb")
 
-# 4. Main Header
+# 3. Main Interface
 st.title("🎬 AI Global Content Factory")
-st.markdown("#### The All-in-One AI Engine to Repurpose Video into Viral Content")
-st.divider()
+st.markdown("#### Repurpose YouTube Knowledge into Viral Content")
 
-# 5. Dual-Input Section
+# Helper function to extract Video ID
+def get_video_id(url):
+    pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+# 4. Input Section
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 🌐 Option A: YouTube Link")
-    youtube_url = st.text_input("Auto-Fetch from URL:", placeholder="https://www.youtube.com/watch?v=...")
+    st.markdown("### 🔗 Option A: Auto-Fetch")
+    url = st.text_input("YouTube URL:", placeholder="https://www.youtube.com/watch?v=...")
 
 with col2:
-    st.markdown("### ⌨️ Option B: Manual Transcript")
-    manual_transcript = st.text_area("Paste Video Script (Failsafe):", placeholder="Copy transcript from YouTube and paste it here if auto-fetch is blocked...", height=100)
+    st.markdown("### ⌨️ Option B: Manual Paste")
+    manual_text = st.text_area("Paste Transcript (Failsafe):", placeholder="Copy from YouTube 'Show Transcript'...", height=100)
 
-with st.expander("❓ How to get the transcript manually from YouTube?"):
-    st.write("1. Open the video on YouTube.com")
-    st.write("2. Click '... More' under the video title.")
-    st.write("3. Click 'Show Transcript'.")
-    st.write("4. Copy all text and paste it into Option B above.")
+st.divider()
 
-# 6. Core Engine Logic
-if st.button("🚀 Generate Professional Content Bundle"):
+# 5. Core Logic
+if st.button("🚀 Generate High-Quality Content Bundle"):
     if not api_key:
         st.error("❌ Configuration Error: Please enter your API Key in the sidebar.")
     else:
         try:
+            # Initialize AI
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-1.5-flash')
             
-            final_data = ""
+            final_transcript = ""
             
             # Acquisition Logic
-            if manual_transcript:
-                final_data = manual_transcript
-            elif youtube_url:
-                with st.spinner("⏳ Connecting to YouTube services..."):
-                    try:
-                        # Improved Regex for Video ID
-                        video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", youtube_url).group(1)
-                        transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'fa'])
-                        final_data = " ".join([entry['text'] for entry in transcript_data])
-                    except Exception as e:
-                        st.error("⚠️ YouTube blocked automated access. Please use **Option B (Manual Paste)**.")
+            if manual_text:
+                final_transcript = manual_text
+            elif url:
+                video_id = get_video_id(url)
+                if video_id:
+                    with st.spinner("⏳ Extracting video script..."):
+                        try:
+                            srt = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'fa'])
+                            final_transcript = " ".join([t['text'] for t in srt])
+                        except:
+                            st.error("⚠️ YouTube blocked auto-fetch. Please use **Option B (Manual Paste)**.")
+                else:
+                    st.error("❌ Invalid YouTube Link!")
             
-            # AI Generation Logic
-            if final_data:
-                with st.spinner("🤖 AI content architect is analyzing the data..."):
+            # AI Generation
+            if final_transcript:
+                with st.spinner("🤖 AI Content Architect is working..."):
                     prompt = f"""
-                    You are a world-class content creator and SEO expert. Analyze the following transcript:
-                    {final_data}
+                    Analyze the following transcript: {final_transcript}
                     
-                    Please produce three high-quality sections in professional English:
-                    1. A Detailed Blog Post: SEO-optimized, engaging headings, and a clear conclusion.
-                    2. Twitter/X Thread: 5 viral-style posts with relevant emojis and hashtags.
-                    3. LinkedIn Article: Professional summary for a business audience.
+                    Create three distinct professional sections in English:
+                    1. A Detailed Blog Post (SEO-optimized with headings).
+                    2. 5 Viral Twitter Posts (with emojis).
+                    3. A Concise LinkedIn Article Summary.
                     
                     Format: Use clean Markdown.
                     """
                     response = model.generate_content(prompt)
                     
                     st.balloons()
-                    st.divider()
                     
-                    # 7. Organized Professional Display
-                    tab1, tab2, tab3 = st.tabs(["📝 SEO Blog Post", "🐦 Twitter/X Bundle", "💼 LinkedIn Article"])
-                    
+                    # Display Results in Tabs
+                    tab1, tab2, tab3 = st.tabs(["📝 Blog Post", "🐦 Twitter/X", "💼 LinkedIn"])
                     with tab1:
                         st.markdown(response.text)
-                    
                     with tab2:
-                        st.info("Ready-to-post viral thread for X")
                         st.write(response.text)
-                        
                     with tab3:
                         st.write(response.text)
                     
-                    # 8. Export Feature
-                    st.download_button(
-                        label="📥 Download Content as Text File",
-                        data=response.text,
-                        file_name="ai_content_bundle.txt",
-                        mime="text/plain"
-                    )
+                    st.download_button("📥 Download Results", response.text, file_name="content_bundle.txt")
             else:
-                st.warning("⚠️ No data found. Please provide a YouTube link or paste the transcript manually.")
-                    
+                st.warning("⚠️ No content found. Please provide a link or transcript.")
+                
         except Exception as e:
-            st.error(f"An unexpected error occurred: {e}")
+            st.error(f"Connection Error: {e}")
 
-# 9. Footer
+# 6. Footer
 st.divider()
-st.markdown("<p style='text-align: center; color: #7f8c8d;'>© 2024 AI Global Content Factory | Built for International Business</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>© 2024 AI Global Content Factory | Built for Success</p>", unsafe_allow_html=True)
