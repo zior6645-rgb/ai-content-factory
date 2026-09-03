@@ -3,34 +3,33 @@ import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
-# 1. Professional Page Configuration
+# 1. Page Configuration
 st.set_page_config(
     page_title="AI Global Content Factory",
     page_icon="🚀",
     layout="wide"
 )
 
-# 2. Sidebar - Settings & Monetization
+# 2. Sidebar - Monetization & Settings
 with st.sidebar:
     st.title("💰 Premium Access")
-    st.success("### Lifetime License")
-    st.write("For unlimited AI power, send **20 USDT (TRC20)** to:")
-    st.code("ENTER_YOUR_WALLET_ADDRESS_HERE", language="text")
-    st.caption("Contact support for manual verification.")
+    st.success("### Professional License")
+    st.write("For unlimited AI processing power, send **20 USDT (TRC20)** to:")
+    st.code("YOUR_WALLET_ADDRESS_HERE", language="text")
+    st.caption("Verification: 1-2 hours. Contact: support@yourdomain.com")
     
     st.divider()
-    st.header("⚙️ Configuration")
-    # Using strip() to remove accidental spaces
+    st.header("⚙️ API Configuration")
     raw_key = st.text_input("Enter Gemini API Key:", type="password")
     api_key = raw_key.strip() if raw_key else None
     st.info("🔗 [Get Free API Key](https://aistudio.google.com/)")
     
     st.divider()
-    st.caption("Version 1.1 | Developed by zior6645-rgb")
+    st.caption("Version 2.0 | Global Release")
 
 # 3. Main Interface
 st.title("🎬 AI Global Content Factory")
-st.markdown("#### Repurpose YouTube Knowledge into Viral Content")
+st.markdown("#### Repurpose YouTube Videos into Viral Content Instantly")
 
 # Helper function to extract Video ID
 def get_video_id(url):
@@ -51,19 +50,19 @@ with col2:
 
 st.divider()
 
-# 5. Core Logic
+# 5. Core Execution Logic
 if st.button("🚀 Generate High-Quality Content Bundle"):
     if not api_key:
         st.error("❌ Configuration Error: Please enter your API Key in the sidebar.")
     else:
         try:
-            # Initialize AI
+            # Configure AI
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-1.5-flash')
             
             final_transcript = ""
             
-            # Acquisition Logic
+            # Step 1: Content Acquisition
             if manual_text:
                 final_transcript = manual_text
             elif url:
@@ -71,32 +70,34 @@ if st.button("🚀 Generate High-Quality Content Bundle"):
                 if video_id:
                     with st.spinner("⏳ Extracting video script..."):
                         try:
-                            srt = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'fa'])
+                            # Tries to fetch English transcript
+                            srt = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
                             final_transcript = " ".join([t['text'] for t in srt])
                         except:
-                            st.error("⚠️ YouTube blocked auto-fetch. Please use **Option B (Manual Paste)**.")
+                            st.error("⚠️ YouTube blocked automated access. Please use **Option B (Manual Paste)**.")
                 else:
-                    st.error("❌ Invalid YouTube Link!")
+                    st.error("❌ Invalid YouTube Link format!")
             
-            # AI Generation
+            # Step 2: Content Generation
             if final_transcript:
                 with st.spinner("🤖 AI Content Architect is working..."):
                     prompt = f"""
-                    Analyze the following transcript: {final_transcript}
+                    You are an expert content strategist. Based on this transcript: {final_transcript}
                     
-                    Create three distinct professional sections in English:
-                    1. A Detailed Blog Post (SEO-optimized with headings).
-                    2. 5 Viral Twitter Posts (with emojis).
+                    Generate three distinct professional sections:
+                    1. A Detailed SEO Blog Post (with H1, H2, H3 tags).
+                    2. 5 Engaging Twitter Posts (with emojis and hashtags).
                     3. A Concise LinkedIn Article Summary.
                     
-                    Format: Use clean Markdown.
+                    Output Language: English. Format: Professional Markdown.
                     """
                     response = model.generate_content(prompt)
                     
                     st.balloons()
                     
-                    # Display Results in Tabs
+                    # Step 3: Professional Display in Tabs
                     tab1, tab2, tab3 = st.tabs(["📝 Blog Post", "🐦 Twitter/X", "💼 LinkedIn"])
+                    
                     with tab1:
                         st.markdown(response.text)
                     with tab2:
@@ -104,13 +105,19 @@ if st.button("🚀 Generate High-Quality Content Bundle"):
                     with tab3:
                         st.write(response.text)
                     
-                    st.download_button("📥 Download Results", response.text, file_name="content_bundle.txt")
+                    # Step 4: Download Feature
+                    st.download_button(
+                        label="📥 Download All Content",
+                        data=response.text,
+                        file_name="ai_content_factory.txt",
+                        mime="text/plain"
+                    )
             else:
-                st.warning("⚠️ No content found. Please provide a link or transcript.")
+                st.warning("⚠️ No data detected. Please provide a link or paste a transcript.")
                 
         except Exception as e:
-            st.error(f"Connection Error: {e}")
+            st.error(f"System Error: {str(e)}")
 
-# 6. Footer
+# 6. Global Footer
 st.divider()
 st.markdown("<p style='text-align: center;'>© 2024 AI Global Content Factory | Built for Success</p>", unsafe_allow_html=True)
