@@ -1,3 +1,3 @@
-line 14
-if not url:
-IndentationError
+streamlit
+google-genai
+youtube-transcript-api
