@@ -1,122 +1,118 @@
 import re
+
 import streamlit as st
 from google import genai
 
+
 st.set_page_config(
-page_title="AI Global Content Factory",
-page_icon="🎬",
-layout="wide"
+    page_title="AI Global Content Factory",
+    page_icon="🎬",
+    layout="wide",
 )
 
 st.title("🎬 AI Global Content Factory")
 st.subheader("Transform YouTube knowledge into professional content")
 
 st.write(
-"Generate high-quality Blog, X/Twitter and LinkedIn content from a YouTube transcript."
+    "Generate high-quality Blog, X/Twitter and LinkedIn content "
+    "from a YouTube transcript."
 )
 
 st.divider()
 
 api_key = st.text_input(
-"🔑 Gemini API Key",
-type="password",
-placeholder="Paste your Gemini API key here"
+    "🔑 Gemini API Key",
+    type="password",
+    placeholder="Paste your Gemini API key here",
 )
 
-st.caption(
-"Your API key is used only for the current Streamlit session."
-)
+st.caption("Your API key is used only for the current Streamlit session.")
 
 st.divider()
 
 youtube_url = st.text_input(
-"🔗 YouTube URL",
-placeholder="https://www.youtube.com/watch?v=XXXXXXXXXXX"
+    "🔗 YouTube URL",
+    placeholder="https://www.youtube.com/watch?v=XXXXXXXXXXX",
 )
 
 manual_transcript = st.text_area(
-"📝 YouTube Transcript",
-placeholder="Paste the transcript here. Manual transcript is recommended when automatic YouTube access is unavailable.",
-height=260
+    "📝 YouTube Transcript",
+    placeholder=(
+        "Paste the transcript here. Manual transcript is recommended "
+        "when automatic YouTube access is unavailable."
+    ),
+    height=260,
 )
 
 generate_button = st.button(
-"🚀 Generate Content",
-type="primary",
-use_container_width=True
+    "🚀 Generate Content",
+    type="primary",
+    use_container_width=True,
 )
+
 
 def extract_video_id(url):
-if not url:
-return ""
+    if not url:
+        return ""
 
-```
-patterns = [
-    r"(?:youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
-    r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
-    r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
-    r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
-    r"(?:youtube\.com/live/)([A-Za-z0-9_-]{11})"
-]
+    patterns = [
+        r"(?:youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
+        r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/live/)([A-Za-z0-9_-]{11})",
+    ]
 
-for pattern in patterns:
-    match = re.search(pattern, url.strip())
+    for pattern in patterns:
+        match = re.search(pattern, url.strip())
 
-    if match:
-        return match.group(1)
+        if match:
+            return match.group(1)
 
-return ""
-```
+    return ""
+
 
 def clean_text(text):
-if not text:
-return ""
+    if not text:
+        return ""
 
-```
-text = text.replace("\r", " ")
-text = text.replace("\n", " ")
-text = re.sub(r"\s+", " ", text)
+    text = text.replace("\r", " ")
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
 
-return text.strip()
-```
+    return text.strip()
+
 
 def get_transcript(video_id):
-from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api import YouTubeTranscriptApi
 
-```
-api = YouTubeTranscriptApi()
+    api = YouTubeTranscriptApi()
 
-transcript = api.fetch(
-    video_id,
-    languages=["en", "fa"]
-)
+    transcript = api.fetch(
+        video_id,
+        languages=["en", "fa"],
+    )
 
-parts = []
+    parts = []
 
-for item in transcript:
-    if hasattr(item, "text"):
-        parts.append(item.text)
+    for item in transcript:
+        if hasattr(item, "text"):
+            parts.append(item.text)
 
-result = clean_text(" ".join(parts))
+    result = clean_text(" ".join(parts))
 
-if not result:
-    raise Exception("The YouTube transcript is empty.")
+    if not result:
+        raise Exception("The YouTube transcript is empty.")
 
-return result
-```
+    return result
+
 
 def generate_content(api_key_value, transcript_value):
+    client = genai.Client(api_key=api_key_value)
 
-```
-client = genai.Client(
-    api_key=api_key_value
-)
+    transcript_value = transcript_value[:100000]
 
-transcript_value = transcript_value[:100000]
-
-prompt = """
-```
-
+    prompt = """
 You are an expert international content strategist,
 SEO writer, editorial writer and social media content creator.
 
@@ -211,281 +207,205 @@ SOURCE TRANSCRIPT
 
 """ + transcript_value
 
-```
-response = client.models.generate_content(
-    model="gemini-2.5-flash",
-    contents=prompt
-)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
 
-if response is None:
-    raise Exception("Gemini returned no response.")
+    if response is None:
+        raise Exception("Gemini returned no response.")
 
-result = response.text
+    result = response.text
 
-if not result:
-    raise Exception("Gemini returned an empty response.")
+    if not result:
+        raise Exception("Gemini returned an empty response.")
 
-return result
-```
+    return result
+
 
 def split_content(result):
-blog = ""
-x_posts = ""
-linkedin = ""
+    blog = ""
+    x_posts = ""
+    linkedin = ""
 
-```
-blog_match = re.search(
-    r"\[BLOG\](.*?)(?=\[X\])",
-    result,
-    re.IGNORECASE | re.DOTALL
-)
+    blog_match = re.search(
+        r"\[BLOG\](.*?)(?=\[X\])",
+        result,
+        re.IGNORECASE | re.DOTALL,
+    )
 
-x_match = re.search(
-    r"\[X\](.*?)(?=\[LINKEDIN\])",
-    result,
-    re.IGNORECASE | re.DOTALL
-)
+    x_match = re.search(
+        r"\[X\](.*?)(?=\[LINKEDIN\])",
+        result,
+        re.IGNORECASE | re.DOTALL,
+    )
 
-linkedin_match = re.search(
-    r"\[LINKEDIN\](.*)",
-    result,
-    re.IGNORECASE | re.DOTALL
-)
+    linkedin_match = re.search(
+        r"\[LINKEDIN\](.*)",
+        result,
+        re.IGNORECASE | re.DOTALL,
+    )
 
-if blog_match:
-    blog = blog_match.group(1).strip()
+    if blog_match:
+        blog = blog_match.group(1).strip()
 
-if x_match:
-    x_posts = x_match.group(1).strip()
+    if x_match:
+        x_posts = x_match.group(1).strip()
 
-if linkedin_match:
-    linkedin = linkedin_match.group(1).strip()
+    if linkedin_match:
+        linkedin = linkedin_match.group(1).strip()
 
-if not blog and not x_posts and not linkedin:
-    blog = result.strip()
+    if not blog and not x_posts and not linkedin:
+        blog = result.strip()
 
-return blog, x_posts, linkedin
-```
+    return blog, x_posts, linkedin
+
 
 if generate_button:
+    key = api_key.strip()
 
-```
-key = api_key.strip()
+    if not key:
+        st.error("❌ Please enter your Gemini API key.")
+        st.stop()
 
-if not key:
-    st.error(
-        "❌ Please enter your Gemini API key."
-    )
-    st.stop()
+    transcript = clean_text(manual_transcript)
 
-transcript = clean_text(
-    manual_transcript
-)
+    if not transcript and youtube_url.strip():
+        video_id = extract_video_id(youtube_url)
 
-if not transcript and youtube_url.strip():
+        if not video_id:
+            st.error("❌ The YouTube URL is not valid.")
+            st.stop()
 
-    video_id = extract_video_id(
-        youtube_url
-    )
+        with st.spinner("🔎 Fetching YouTube transcript..."):
+            try:
+                transcript = get_transcript(video_id)
 
-    if not video_id:
-        st.error(
-            "❌ The YouTube URL is not valid."
+            except Exception as error:
+                st.error("⚠️ Automatic YouTube transcript retrieval failed.")
+                st.info(
+                    "Please copy the transcript from YouTube and paste it "
+                    "into the Transcript box."
+                )
+
+                with st.expander("Technical details"):
+                    st.code(str(error))
+
+                st.stop()
+
+    if not transcript:
+        st.warning("Please enter a YouTube URL or paste a transcript.")
+        st.stop()
+
+    if len(transcript) < 50:
+        st.warning(
+            "The transcript is too short. Please provide more content."
         )
         st.stop()
 
-    with st.spinner(
-        "🔎 Fetching YouTube transcript..."
-    ):
+    st.info(
+        "Transcript loaded: "
+        + format(len(transcript), ",")
+        + " characters."
+    )
 
+    with st.spinner("🤖 Gemini is creating your content..."):
         try:
-
-            transcript = get_transcript(
-                video_id
-            )
+            result = generate_content(key, transcript)
 
         except Exception as error:
+            error_message = str(error)
 
-            st.error(
-                "⚠️ Automatic YouTube transcript retrieval failed."
-            )
+            st.error("❌ Gemini could not generate the content.")
 
-            st.info(
-                "Please copy the transcript from YouTube and paste it into the Transcript box."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.code(
-                    str(error)
+            if "401" in error_message:
+                st.warning("Your Gemini API key may be invalid.")
+            elif "403" in error_message:
+                st.warning(
+                    "The API request was rejected. Check your Gemini API "
+                    "key and access."
                 )
+            elif "429" in error_message:
+                st.warning(
+                    "The API rate limit was reached. Please wait and try again."
+                )
+            else:
+                st.warning("Please review the technical details below.")
+
+            with st.expander("Technical details"):
+                st.code(error_message)
 
             st.stop()
 
-if not transcript:
+    blog, x_posts, linkedin = split_content(result)
 
-    st.warning(
-        "Please enter a YouTube URL or paste a transcript."
+    st.success("🎉 Your content has been generated successfully!")
+
+    tab_blog, tab_x, tab_linkedin = st.tabs(
+        ["📝 Blog", "𝕏 X / Twitter", "💼 LinkedIn"]
     )
-    st.stop()
 
-if len(transcript) < 50:
+    with tab_blog:
+        st.markdown(blog)
 
-    st.warning(
-        "The transcript is too short. Please provide more content."
-    )
-    st.stop()
-
-st.info(
-    "Transcript loaded: "
-    + format(len(transcript), ",")
-    + " characters."
-)
-
-with st.spinner(
-    "🤖 Gemini is creating your content..."
-):
-
-    try:
-
-        result = generate_content(
-            key,
-            transcript
+        st.download_button(
+            "📥 Download Blog",
+            blog,
+            file_name="blog_post.md",
+            mime="text/markdown",
+            use_container_width=True,
         )
 
-    except Exception as error:
+    with tab_x:
+        st.markdown(x_posts)
 
-        error_message = str(error)
-
-        st.error(
-            "❌ Gemini could not generate the content."
+        st.download_button(
+            "📥 Download X Posts",
+            x_posts,
+            file_name="x_posts.txt",
+            mime="text/plain",
+            use_container_width=True,
         )
 
-        if "401" in error_message:
+    with tab_linkedin:
+        st.markdown(linkedin)
 
-            st.warning(
-                "Your Gemini API key may be invalid."
-            )
+        st.download_button(
+            "📥 Download LinkedIn",
+            linkedin,
+            file_name="linkedin_post.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
 
-        elif "403" in error_message:
-
-            st.warning(
-                "The API request was rejected. Check your Gemini API key and access."
-            )
-
-        elif "429" in error_message:
-
-            st.warning(
-                "The API rate limit was reached. Please wait and try again."
-            )
-
-        else:
-
-            st.warning(
-                "Please review the technical details below."
-            )
-
-        with st.expander(
-            "Technical details"
-        ):
-
-            st.code(
-                error_message
-            )
-
-        st.stop()
-
-blog, x_posts, linkedin = split_content(
-    result
-)
-
-st.success(
-    "🎉 Your content has been generated successfully!"
-)
-
-tab_blog, tab_x, tab_linkedin = st.tabs(
-    [
-        "📝 Blog",
-        "𝕏 X / Twitter",
-        "💼 LinkedIn"
-    ]
-)
-
-with tab_blog:
-
-    st.markdown(
-        blog
+    complete_bundle = (
+        "AI GLOBAL CONTENT FACTORY\n\n"
+        "================================\n"
+        "BLOG\n"
+        "================================\n\n"
+        + blog
+        + "\n\n"
+        "================================\n"
+        "X / TWITTER\n"
+        "================================\n\n"
+        + x_posts
+        + "\n\n"
+        "================================\n"
+        "LINKEDIN\n"
+        "================================\n\n"
+        + linkedin
     )
+
+    st.divider()
 
     st.download_button(
-        "📥 Download Blog",
-        blog,
-        file_name="blog_post.md",
-        mime="text/markdown",
-        use_container_width=True
-    )
-
-with tab_x:
-
-    st.markdown(
-        x_posts
-    )
-
-    st.download_button(
-        "📥 Download X Posts",
-        x_posts,
-        file_name="x_posts.txt",
+        "📦 Download Complete Content Bundle",
+        complete_bundle,
+        file_name="content_bundle.txt",
         mime="text/plain",
-        use_container_width=True
+        use_container_width=True,
     )
-
-with tab_linkedin:
-
-    st.markdown(
-        linkedin
-    )
-
-    st.download_button(
-        "📥 Download LinkedIn",
-        linkedin,
-        file_name="linkedin_post.md",
-        mime="text/markdown",
-        use_container_width=True
-    )
-
-complete_bundle = (
-    "AI GLOBAL CONTENT FACTORY\n\n"
-    "================================\n"
-    "BLOG\n"
-    "================================\n\n"
-    + blog
-    + "\n\n"
-    "================================\n"
-    "X / TWITTER\n"
-    "================================\n\n"
-    + x_posts
-    + "\n\n"
-    "================================\n"
-    "LINKEDIN\n"
-    "================================\n\n"
-    + linkedin
-)
 
 st.divider()
 
-st.download_button(
-    "📦 Download Complete Content Bundle",
-    complete_bundle,
-    file_name="content_bundle.txt",
-    mime="text/plain",
-    use_container_width=True
-)
-```
-
-st.divider()
-
-st.caption(
-"AI Global Content Factory • Powered by Streamlit + Gemini"
-)
+st.caption("AI Global Content Factory • Powered by Streamlit + Gemini")
