@@ -16,12 +16,11 @@ type="password"
 )
 
 if st.button("Test Gemini"):
+if not api_key.strip():
+st.error("Please enter your Gemini API key.")
+st.stop()
 
 ```
-if not api_key.strip():
-    st.error("Please enter your Gemini API key.")
-    st.stop()
-
 try:
     client = genai.Client(
         api_key=api_key.strip()
@@ -33,12 +32,9 @@ try:
     )
 
     st.success("Gemini connection is working.")
-
     st.write(response.text)
 
 except Exception as error:
-
     st.error("Gemini connection failed.")
-
     st.code(str(error))
 ```
