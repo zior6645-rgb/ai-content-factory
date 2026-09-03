@@ -1,57 +1,120 @@
 import streamlit as st
-import requests
-import json
+from groq import Groq
+from youtube_transcript_api import YouTubeTranscriptApi
+import re
 
-# Page Config
-st.set_page_config(page_title="AI Global Content Factory", page_icon="🚀", layout="wide")
+# 1. Global Page Configuration
+st.set_page_config(
+    page_title="AI Global Content Factory",
+    page_icon="⚡",
+    layout="wide"
+)
 
-# Professional Sidebar
+# 2. Sidebar - Monetization & Configuration
 with st.sidebar:
-    st.title("💰 Membership")
-    st.success("Professional Plan: Active")
-    st.write("Send **20 USDT** to support us:")
-    st.code("YOUR_WALLET_ADDRESS", language="text")
+    st.title("💰 Premium Access")
+    st.success("### High-Speed AI Active")
+    st.write("For unlimited processing power, send **20 USDT (TRC20)** to:")
+    st.code("YOUR_USDT_WALLET_ADDRESS_HERE", language="text") # آدرس تترت را اینجا بگذار
+    
     st.divider()
-    api_key = st.text_input("Enter Gemini API Key:", type="password")
-    st.info("Get it free: aistudio.google.com")
+    st.header("⚙️ Configuration")
+    # API Key Input for Groq
+    raw_key = st.text_input("Enter Groq API Key:", type="password")
+    api_key = raw_key.strip() if raw_key else None
+    st.info("🔗 [Get Groq API Key Here](https://console.groq.com/keys)")
+    
+    st.divider()
+    st.caption("Powered by Groq & Llama 3.3 | v3.0 Global")
 
+# 3. Main Interface Header
 st.title("🎬 AI Global Content Factory")
-st.markdown("#### Turn YouTube Knowledge into Viral Content (Stable Version)")
-
-# Input Section
-manual_text = st.text_area("Paste Video Transcript here:", height=200, placeholder="Copy text from YouTube 'Show Transcript' and paste it here...")
-
-if st.button("🚀 Generate Professional Content"):
-    if not api_key:
-        st.error("Please enter your API Key in the sidebar.")
-    elif not manual_text:
-        st.warning("Please paste the transcript text first.")
-    else:
-        with st.spinner("AI is thinking..."):
-            # Direct API Call to Google (No library needed, avoids 404)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key.strip()}"
-            headers = {'Content-Type': 'application/json'}
-            prompt = f"Using this transcript, create a professional Blog Post, 5 Tweets, and a LinkedIn summary in English: {manual_text}"
-            
-            payload = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            }
-
-            try:
-                response = requests.post(url, headers=headers, data=json.dumps(payload))
-                result = response.json()
-                
-                if response.status_code == 200:
-                    ai_response = result['candidates'][0]['content']['parts'][0]['text']
-                    st.balloons()
-                    st.success("Content Generated Successfully!")
-                    st.markdown(ai_response)
-                else:
-                    st.error(f"Google API Error: {result['error']['message']}")
-            except Exception as e:
-                st.error(f"Connection Error: {str(e)}")
-
+st.markdown("#### Fastest Way to Repurpose YouTube Videos into Professional Content")
 st.divider()
-st.caption("© 2024 Global AI Factory | Powered by Google Gemini (Free Tier)")
+
+# 4. Input Section
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### 🌐 Option A: YouTube Link")
+    url = st.text_input("YouTube URL:", placeholder="https://www.youtube.com/watch?v=...")
+
+with col2:
+    st.markdown("### ⌨️ Option B: Manual Transcript")
+    manual_text = st.text_area("Paste Transcript (Failsafe):", placeholder="Copy from YouTube 'Show Transcript' and paste here...", height=100)
+
+# 5. Core Execution Logic
+if st.button("🚀 Generate Professional Content Bundle"):
+    if not api_key:
+        st.error("❌ API Key is missing! Please enter your Groq API Key in the sidebar.")
+    else:
+        try:
+            # Initialize Groq Client
+            client = Groq(api_key=api_key)
+            
+            final_transcript = ""
+            
+            # Step 1: Content Acquisition
+            if manual_text:
+                final_transcript = manual_text
+            elif url:
+                with st.spinner("⏳ Extracting video script..."):
+                    try:
+                        # Extract Video ID using Regex
+                        video_id = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url).group(1)
+                        srt = YouTubeTranscriptApi.get_transcript(video_id)
+                        final_transcript = " ".join([t['text'] for t in srt])
+                    except:
+                        st.error("⚠️ YouTube auto-fetch blocked. Please use **Option B (Manual Paste)**.")
+            
+            # Step 2: AI Generation with Groq (Llama 3.3)
+            if final_transcript:
+                with st.spinner("🤖 Groq AI is architecting your content..."):
+                    completion = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a professional content strategist. Output everything in Professional English using clean Markdown."
+                            },
+                            {
+                                "role": "user",
+                                "content": f"Analyze this transcript: {final_transcript}\n\nCreate three sections:\n1. A Detailed SEO Blog Post.\n2. 5 Viral Twitter Posts with emojis.\n3. A professional LinkedIn summary."
+                            }
+                        ],
+                        temperature=0.7,
+                        max_tokens=4096
+                    )
+                    
+                    result = completion.choices[0].message.content
+                    st.balloons()
+                    st.divider()
+                    
+                    # Step 3: Organized Display in Tabs
+                    tab1, tab2, tab3 = st.tabs(["📝 SEO Blog Post", "🐦 Twitter Bundle", "💼 LinkedIn"])
+                    
+                    # Split or display result (Llama usually provides clear headers)
+                    with tab1:
+                        st.markdown(result)
+                    with tab2:
+                        st.info("Viral threads generated by Groq")
+                        st.write(result)
+                    with tab3:
+                        st.write(result)
+                    
+                    # Step 4: Download Feature
+                    st.download_button(
+                        label="📥 Download All Content",
+                        data=result,
+                        file_name="ai_global_content.txt",
+                        mime="text/plain"
+                    )
+            else:
+                st.warning("⚠️ No content found. Please provide a link or transcript.")
+                
+        except Exception as e:
+            st.error(f"Groq System Error: {str(e)}")
+
+# 6. Global Footer
+st.divider()
+st.markdown("<p style='text-align: center;'>© 2024 AI Global Content Factory | Built for Success</p>", unsafe_allow_html=True)
