@@ -1,5 +1,9 @@
+import hashlib
 import os
 import re
+import secrets
+import sqlite3
+from datetime import datetime
 from io import BytesIO
 from urllib.parse import parse_qs, urlparse
 
@@ -7,14 +11,10 @@ import streamlit as st
 from groq import Groq
 
 
-st.set_page_config(
-    page_title="AI Global Content Factory",
-    page_icon="🎬",
-    layout="wide",
-)
+DATABASE_FILE = "content_factory.db"
 
 
-def get_secret(name: str, default: str = "") -> str:
+def get_setting(name: str, default: str = "") -> str:
     try:
         value = st.secrets.get(name, "")
         if value:
@@ -25,24 +25,224 @@ def get_secret(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
-GROQ_API_KEY = get_secret("GROQ_API_KEY")
-GROQ_MODEL = get_secret(
+GROQ_API_KEY = get_setting("GROQ_API_KEY")
+GROQ_MODEL = get_setting(
     "GROQ_MODEL",
     "llama-3.3-70b-versatile",
 )
-USDT_NETWORK = get_secret("USDT_NETWORK", "TRC20")
-USDT_ADDRESS = get_secret("USDT_RECEIVE_ADDRESS")
-USDT_AMOUNT = get_secret("USDT_AMOUNT", "10")
+USDT_NETWORK = get_setting("USDT_NETWORK", "TRC20")
+USDT_ADDRESS = get_setting("USDT_RECEIVE_ADDRESS")
+USDT_AMOUNT = get_setting("USDT_AMOUNT", "10")
+
+
+st.set_page_config(
+    page_title="AI Global Content Factory",
+    page_icon="🎬",
+    layout="wide",
+)
+
+
+def get_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(DATABASE_FILE)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def initialize_database() -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS content_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                source_text TEXT NOT NULL,
+                blog TEXT NOT NULL,
+                x_posts TEXT NOT NULL,
+                linkedin TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_references (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                transaction_hash TEXT NOT NULL,
+                network TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
+
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120000,
+    ).hex()
+
+    return f"{salt}${password_hash}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt, saved_hash = stored_hash.split("$", 1)
+    except ValueError:
+        return False
+
+    current_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120000,
+    ).hex()
+
+    return secrets.compare_digest(current_hash, saved_hash)
+
+
+def create_user(
+    username: str,
+    email: str,
+    password: str,
+) -> tuple[bool, str]:
+    if len(username.strip()) < 3:
+        return False, "Username must contain at least 3 characters."
+
+    if "@" not in email or "." not in email:
+        return False, "Enter a valid email address."
+
+    if len(password) < 8:
+        return False, "Password must contain at least 8 characters."
+
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO users
+                (username, email, password_hash, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    username.strip(),
+                    email.strip().lower(),
+                    hash_password(password),
+                    datetime.utcnow().isoformat(),
+                ),
+            )
+
+        return True, "Account created successfully."
+
+    except sqlite3.IntegrityError:
+        return False, "Username or email already exists."
+
+
+def authenticate_user(
+    identifier: str,
+    password: str,
+) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        user = connection.execute(
+            """
+            SELECT * FROM users
+            WHERE username = ? OR email = ?
+            """,
+            (
+                identifier.strip(),
+                identifier.strip().lower(),
+            ),
+        ).fetchone()
+
+    if user and verify_password(password, user["password_hash"]):
+        return user
+
+    return None
+
+
+def save_history(
+    user_id: int,
+    source_text: str,
+    blog: str,
+    x_posts: str,
+    linkedin: str,
+) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO content_history
+            (user_id, source_text, blog, x_posts, linkedin, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                source_text,
+                blog,
+                x_posts,
+                linkedin,
+                datetime.utcnow().isoformat(),
+            ),
+        )
+
+
+def get_history(user_id: int) -> list[sqlite3.Row]:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT id, source_text, blog, x_posts, linkedin, created_at
+            FROM content_history
+            WHERE user_id = ?
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+
+def save_payment_reference(
+    user_id: int,
+    transaction_hash: str,
+) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO payment_references
+            (user_id, transaction_hash, network, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                transaction_hash.strip(),
+                USDT_NETWORK,
+                "pending_review",
+                datetime.utcnow().isoformat(),
+            ),
+        )
 
 
 def clean_text(value: str) -> str:
-    if not value:
-        return ""
-
     return re.sub(
         r"\s+",
         " ",
-        value.replace("\r", " ").replace("\n", " "),
+        (value or "").replace("\r", " ").replace("\n", " "),
     ).strip()
 
 
@@ -56,7 +256,6 @@ def extract_video_id(url: str) -> str:
 
         if host == "youtu.be":
             video_id = parsed_url.path.strip("/").split("/")[0]
-
         elif host in {"youtube.com", "m.youtube.com"}:
             if parsed_url.path == "/watch":
                 video_id = parse_qs(
@@ -65,7 +264,6 @@ def extract_video_id(url: str) -> str:
             else:
                 parts = parsed_url.path.strip("/").split("/")
                 video_id = parts[1] if len(parts) > 1 else ""
-
         else:
             return ""
 
@@ -92,113 +290,53 @@ def fetch_transcript(video_id: str) -> str:
     for item in transcript:
         if hasattr(item, "text"):
             parts.append(item.text)
-        elif isinstance(item, dict):
-            text = item.get("text", "")
-            if text:
-                parts.append(text)
+        elif isinstance(item, dict) and item.get("text"):
+            parts.append(item["text"])
 
     result = clean_text(" ".join(parts))
 
     if not result:
-        raise RuntimeError(
-            "The YouTube transcript is empty."
-        )
+        raise RuntimeError("The YouTube transcript is empty.")
 
     return result
-
-
-def explain_error(error: Exception) -> str:
-    message = str(error)
-    lowered = message.lower()
-
-    if "401" in message:
-        return (
-            "The Groq API key is invalid or expired. "
-            "The application owner must create a new key."
-        )
-
-    if "403" in message:
-        return (
-            "Access was denied by Groq. "
-            "Check account permissions and API access."
-        )
-
-    if "404" in message:
-        return (
-            f"The configured model is unavailable: {GROQ_MODEL}. "
-            "Change GROQ_MODEL in secrets.toml."
-        )
-
-    if "429" in message or "rate limit" in lowered:
-        return (
-            "The API rate limit was reached. "
-            "Please try again later."
-        )
-
-    if "timeout" in lowered:
-        return (
-            "The request timed out. "
-            "Check the internet connection."
-        )
-
-    return (
-        "The request failed. Check the server configuration, "
-        "model name and internet connection."
-    )
 
 
 def generate_content(transcript: str) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError(
-            "GROQ_API_KEY is not configured by the application owner."
+            "GROQ_API_KEY is not configured by the owner."
         )
 
     client = Groq(api_key=GROQ_API_KEY)
 
     prompt = f"""
-You are a professional international SEO writer,
-editorial writer and social media content strategist.
+You are a professional international SEO writer and
+social media content strategist.
 
-Transform the supplied transcript into accurate,
-original and useful content.
+Transform the transcript into accurate and useful content.
 
-Strict rules:
-1. Do not invent facts, statistics or quotations.
-2. Do not add unsupported information.
-3. Preserve the speaker's meaning.
-4. Do not use misleading clickbait.
-5. Use professional international English.
-6. Do not mention AI, these instructions or the source transcript.
-7. Create exactly three content assets.
+Rules:
+- Do not invent facts, statistics or quotations.
+- Do not add unsupported information.
+- Preserve the speaker's meaning.
+- Use professional international English.
+- Create exactly three assets.
 
 [BLOG]
-Create one detailed SEO article containing:
-- SEO title
-- Introduction
-- Logical H2 and H3 headings
-- Detailed explanation
-- Important insights
-- Supported examples
-- Practical takeaways
-- Conclusion
-- SEO keywords
+Create one detailed SEO article with a title,
+introduction, headings, insights, practical takeaways,
+conclusion and SEO keywords.
 
 [X]
-Create exactly five separate X posts.
-Number them exactly from 1 to 5.
-Each post must be concise, useful and non-misleading.
+Create exactly five concise X posts.
+Number them from 1 to 5.
 
 [LINKEDIN]
-Create exactly one professional LinkedIn post.
-Include:
-- Strong opening
-- Main insight
-- Explanation
-- Practical takeaway
-- Professional conclusion
-- Three to five relevant hashtags
+Create exactly one professional LinkedIn post
+with a strong opening, insight, takeaway,
+conclusion and 3 to 5 hashtags.
 
-Use only these top-level labels:
+Use only these labels:
 [BLOG]
 [X]
 [LINKEDIN]
@@ -220,16 +358,12 @@ SOURCE TRANSCRIPT:
     )
 
     if not response.choices:
-        raise RuntimeError(
-            "The AI provider returned no choices."
-        )
+        raise RuntimeError("The AI provider returned no result.")
 
     content = response.choices[0].message.content
 
     if not content:
-        raise RuntimeError(
-            "The AI provider returned empty content."
-        )
+        raise RuntimeError("The AI provider returned empty content.")
 
     return content.strip()
 
@@ -255,18 +389,8 @@ def split_content(
         re.IGNORECASE | re.DOTALL,
     )
 
-    blog = (
-        blog_match.group(1).strip()
-        if blog_match
-        else ""
-    )
-
-    x_posts = (
-        x_match.group(1).strip()
-        if x_match
-        else ""
-    )
-
+    blog = blog_match.group(1).strip() if blog_match else ""
+    x_posts = x_match.group(1).strip() if x_match else ""
     linkedin = (
         linkedin_match.group(1).strip()
         if linkedin_match
@@ -279,12 +403,84 @@ def split_content(
     return blog, x_posts, linkedin
 
 
-def render_payment_section() -> None:
+def show_authentication() -> None:
+    st.title("AI Global Content Factory")
+    st.subheader("Create an account or sign in")
+
+    register_tab, login_tab = st.tabs(
+        ["Create Account", "Sign In"]
+    )
+
+    with register_tab:
+        with st.form("register_form"):
+            username = st.text_input("Username")
+            email = st.text_input("Email")
+            password = st.text_input(
+                "Password",
+                type="password",
+            )
+            confirm_password = st.text_input(
+                "Confirm Password",
+                type="password",
+            )
+
+            submitted = st.form_submit_button(
+                "Create Account",
+                use_container_width=True,
+            )
+
+        if submitted:
+            if password != confirm_password:
+                st.error("Passwords do not match.")
+            else:
+                success, message = create_user(
+                    username,
+                    email,
+                    password,
+                )
+
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+
+    with login_tab:
+        with st.form("login_form"):
+            identifier = st.text_input(
+                "Username or Email"
+            )
+            password = st.text_input(
+                "Password",
+                type="password",
+            )
+
+            submitted = st.form_submit_button(
+                "Sign In",
+                use_container_width=True,
+            )
+
+        if submitted:
+            user = authenticate_user(
+                identifier,
+                password,
+            )
+
+            if user:
+                st.session_state.user_id = user["id"]
+                st.session_state.username = user["username"]
+                st.rerun()
+            else:
+                st.error(
+                    "Invalid username, email or password."
+                )
+
+
+def render_payment_section(user_id: int) -> None:
     st.subheader("USDT Payment")
 
     if not USDT_ADDRESS:
         st.info(
-            "Payment is not configured by the application owner."
+            "Payment details are not configured by the owner."
         )
         return
 
@@ -298,26 +494,20 @@ def render_payment_section() -> None:
         qr_image = qrcode.make(USDT_ADDRESS)
         buffer = BytesIO()
         qr_image.save(buffer, format="PNG")
-
         st.image(
             buffer.getvalue(),
             width=180,
-            caption="USDT receiving address",
         )
-
     except ImportError:
-        st.caption(
-            "Install qrcode[pil] to enable the QR code."
-        )
+        st.caption("QR code support is unavailable.")
 
     st.warning(
-        "Send USDT only on the displayed network. "
-        "A wrong network may cause permanent loss."
+        "Send USDT only on the displayed network."
     )
 
     transaction_hash = st.text_input(
-        "Transaction hash",
-        placeholder="Paste the transaction hash after payment",
+        "Transaction Hash",
+        key="transaction_hash",
     )
 
     if st.button(
@@ -325,219 +515,194 @@ def render_payment_section() -> None:
         use_container_width=True,
     ):
         if not transaction_hash.strip():
-            st.error(
-                "Please enter a transaction hash."
-            )
+            st.error("Enter a transaction hash.")
         else:
+            save_payment_reference(
+                user_id,
+                transaction_hash,
+            )
             st.success(
-                "Payment reference submitted for manual review."
+                "Payment reference submitted for review."
             )
 
 
-def render_sidebar() -> None:
-    with st.sidebar:
-        st.header("Application Settings")
+def render_history(user_id: int) -> None:
+    history = get_history(user_id)
 
-        st.caption(
-            "The AI API key is managed securely by the application owner."
-        )
+    if not history:
+        st.info("Your content history is empty.")
+        return
 
-        st.markdown(
-            "[Create a Groq API key]"
-            "(https://console.groq.com/keys)"
-        )
+    for item in history:
+        created_at = item["created_at"][:19]
 
-        st.divider()
+        with st.expander(
+            f"Content generated on {created_at}"
+        ):
+            st.download_button(
+                "Download Blog",
+                item["blog"],
+                f"blog_{item['id']}.md",
+                "text/markdown",
+                key=f"blog_{item['id']}",
+            )
 
-        with st.expander("Payment Details"):
-            render_payment_section()
+            st.markdown(item["blog"])
+
+            st.download_button(
+                "Download X Posts",
+                item["x_posts"],
+                f"x_posts_{item['id']}.txt",
+                "text/plain",
+                key=f"x_{item['id']}",
+            )
+
+            st.download_button(
+                "Download LinkedIn Post",
+                item["linkedin"],
+                f"linkedin_{item['id']}.md",
+                "text/markdown",
+                key=f"linkedin_{item['id']}",
+            )
 
 
 def main() -> None:
-    st.title("🎬 AI Global Content Factory")
+    initialize_database()
 
-    st.write(
-        "Create an SEO article, five X posts and one LinkedIn post "
-        "from a YouTube transcript."
-    )
-
-    render_sidebar()
-
-    column_one, column_two = st.columns(2)
-
-    with column_one:
-        youtube_url = st.text_input(
-            "YouTube URL",
-            placeholder=(
-                "https://www.youtube.com/watch?v=XXXXXXXXXXX"
-            ),
-            help=(
-                "Supports standard videos, Shorts, Live "
-                "and youtu.be links."
-            ),
-        )
-
-    with column_two:
-        manual_transcript = st.text_area(
-            "Manual Transcript",
-            height=220,
-            placeholder=(
-                "Paste a transcript if automatic retrieval fails."
-            ),
-        )
-
-    st.divider()
-
-    generate_button = st.button(
-        "🚀 Generate Professional Content",
-        type="primary",
-        use_container_width=True,
-    )
-
-    if not generate_button:
+    if "user_id" not in st.session_state:
+        show_authentication()
         return
 
-    transcript = clean_text(manual_transcript)
+    user_id = st.session_state.user_id
+    username = st.session_state.username
 
-    if not transcript and youtube_url.strip():
-        video_id = extract_video_id(youtube_url)
+    with st.sidebar:
+        st.write(f"Signed in as: **{username}**")
 
-        if not video_id:
-            st.error(
-                "The YouTube URL is invalid."
-            )
-            return
-
-        with st.spinner(
-            "Fetching the YouTube transcript..."
+        if st.button(
+            "Sign Out",
+            use_container_width=True,
         ):
-            try:
-                transcript = fetch_transcript(video_id)
-                st.success(
-                    "YouTube transcript retrieved successfully."
-                )
-            except Exception as error:
-                st.error(
-                    "The YouTube transcript could not be retrieved."
-                )
-                st.info(
-                    "Paste the transcript manually and try again."
-                )
+            st.session_state.clear()
+            st.rerun()
 
-                with st.expander("Technical details"):
+        st.divider()
+
+        with st.expander("USDT Payment"):
+            render_payment_section(user_id)
+
+    st.title("🎬 AI Global Content Factory")
+    st.write(
+        "Create an article, five X posts and one LinkedIn post."
+    )
+
+    history_tab, factory_tab = st.tabs(
+        ["Content History", "Content Factory"]
+    )
+
+    with history_tab:
+        render_history(user_id)
+
+    with factory_tab:
+        column_one, column_two = st.columns(2)
+
+        with column_one:
+            youtube_url = st.text_input(
+                "YouTube URL",
+                placeholder=(
+                    "https://www.youtube.com/watch?v=XXXXXXXXXXX"
+                ),
+            )
+
+        with column_two:
+            manual_transcript = st.text_area(
+                "Manual Transcript",
+                height=220,
+                placeholder=(
+                    "Paste a transcript if retrieval fails."
+                ),
+            )
+
+        if st.button(
+            "🚀 Generate Content",
+            type="primary",
+            use_container_width=True,
+        ):
+            transcript = clean_text(manual_transcript)
+
+            if not transcript and youtube_url.strip():
+                video_id = extract_video_id(youtube_url)
+
+                if not video_id:
+                    st.error("The YouTube URL is invalid.")
+                    st.stop()
+
+                with st.spinner(
+                    "Fetching the transcript..."
+                ):
+                    try:
+                        transcript = fetch_transcript(video_id)
+                    except Exception as error:
+                        st.error(
+                            "The transcript could not be retrieved."
+                        )
+                        st.code(str(error))
+                        st.stop()
+
+            if not transcript:
+                st.warning(
+                    "Provide a YouTube URL or transcript."
+                )
+                st.stop()
+
+            if len(transcript) < 50:
+                st.warning(
+                    "The transcript is too short."
+                )
+                st.stop()
+
+            with st.spinner(
+                "Creating professional content..."
+            ):
+                try:
+                    generated_content = generate_content(
+                        transcript
+                    )
+                except Exception as error:
+                    st.error(
+                        "Content generation failed."
+                    )
                     st.code(str(error))
+                    st.stop()
 
-                return
-
-    if not transcript:
-        st.warning(
-            "Provide a YouTube URL or paste a transcript."
-        )
-        return
-
-    if len(transcript) < 50:
-        st.warning(
-            "The transcript is too short."
-        )
-        return
-
-    st.info(
-        f"Transcript length: {len(transcript):,} characters"
-    )
-
-    with st.spinner(
-        "Creating professional content..."
-    ):
-        try:
-            generated_content = generate_content(transcript)
-        except Exception as error:
-            st.error(explain_error(error))
-
-            with st.expander("Technical details"):
-                st.code(str(error))
-
-            return
-
-    blog, x_posts, linkedin = split_content(
-        generated_content
-    )
-
-    st.success(
-        "Content generated successfully."
-    )
-
-    tab_blog, tab_x, tab_linkedin = st.tabs(
-        [
-            "📝 Blog",
-            "𝕏 X Posts",
-            "💼 LinkedIn",
-        ]
-    )
-
-    with tab_blog:
-        if blog:
-            st.markdown(blog)
-            st.download_button(
-                "📥 Download Blog",
-                data=blog,
-                file_name="blog_post.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
-        else:
-            st.warning(
-                "No Blog section was detected."
+            blog, x_posts, linkedin = split_content(
+                generated_content
             )
 
-    with tab_x:
-        if x_posts:
-            st.markdown(x_posts)
-            st.download_button(
-                "📥 Download X Posts",
-                data=x_posts,
-                file_name="x_posts.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
-        else:
-            st.warning(
-                "No X section was detected."
+            save_history(
+                user_id,
+                transcript,
+                blog,
+                x_posts,
+                linkedin,
             )
 
-    with tab_linkedin:
-        if linkedin:
-            st.markdown(linkedin)
-            st.download_button(
-                "📥 Download LinkedIn Post",
-                data=linkedin,
-                file_name="linkedin_post.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
-        else:
-            st.warning(
-                "No LinkedIn section was detected."
+            st.success(
+                "Content generated and saved to your history."
             )
 
-    complete_bundle = (
-        "AI GLOBAL CONTENT FACTORY\n\n"
-        "================ BLOG ================\n\n"
-        f"{blog}\n\n"
-        "================ X POSTS ================\n\n"
-        f"{x_posts}\n\n"
-        "================ LINKEDIN ================\n\n"
-        f"{linkedin}"
-    )
+            blog_tab, x_tab, linkedin_tab = st.tabs(
+                ["Blog", "X Posts", "LinkedIn"]
+            )
 
-    st.divider()
+            with blog_tab:
+                st.markdown(blog)
 
-    st.download_button(
-        "📦 Download Complete Bundle",
-        data=complete_bundle,
-        file_name="content_bundle.txt",
-        mime="text/plain",
-        use_container_width=True,
-    )
+            with x_tab:
+                st.markdown(x_posts)
+
+            with linkedin_tab:
+                st.markdown(linkedin)
 
 
 if __name__ == "__main__":
